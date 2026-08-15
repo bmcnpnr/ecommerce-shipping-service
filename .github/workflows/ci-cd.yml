@@ -1,0 +1,149 @@
+# Port of .circleci/config.yml: verify -> validate-image -> publish-image.
+# Docker Hub credentials come from the repository secrets DOCKERHUB_USERNAME
+# and DOCKERHUB_ACCESS_TOKEN (the equivalent of the CircleCI
+# "ecommerce-dockerhub" context).
+name: ci-cd
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ecommerce-shipping-service
+
+jobs:
+  verify:
+    name: Verify and package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Replaces CircleCI's restore_cache/save_cache of ~/.m2/repository.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # Docker is available directly on the runner, so unlike CircleCI there is
+      # no need to run Maven inside a cimg/openjdk container with the socket
+      # bind-mounted; any Testcontainers-based test can talk to it as-is.
+      - name: Verify and package
+        run: mvn -B -ntp verify
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: target/*.jar
+          retention-days: 14
+
+  validate-image:
+    name: Validate Docker image
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile only copies target/*.jar, so restoring the jar is enough
+      # to stand in for CircleCI's attach_workspace.
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jars
+          path: target
+
+      - name: Build Docker image without registry credentials
+        run: |
+          set -euo pipefail
+
+          IMAGE="local/${IMAGE_NAME}:sha-${GITHUB_SHA:0:12}"
+          docker build --pull \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GIT_REPO_URL}" \
+            --tag "${IMAGE}" \
+            --file docker/Dockerfile .
+          docker image inspect "${IMAGE}" >/dev/null
+        env:
+          GIT_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+
+  publish-image:
+    name: Publish Docker image
+    needs: validate-image
+    # Mirrors the CircleCI filter: develop/main/master branches or a v* tag.
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' ||
+       github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jars
+          path: target
+
+      - name: Build and publish Docker image
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DOCKERHUB_USERNAME:-}" || -z "${DOCKERHUB_ACCESS_TOKEN:-}" ]]; then
+            echo "DOCKERHUB_USERNAME and DOCKERHUB_ACCESS_TOKEN must be set as repository secrets." >&2
+            exit 1
+          fi
+
+          IMAGE="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          SHA_TAG="sha-${GITHUB_SHA:0:12}"
+
+          printf '%s' "${DOCKERHUB_ACCESS_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+          docker build --pull \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GIT_REPO_URL}" \
+            --tag "${IMAGE}:${SHA_TAG}" \
+            --file docker/Dockerfile .
+
+          docker push "${IMAGE}:${SHA_TAG}"
+
+          # github.ref_type/ref_name are always populated here, so the "<nil>"
+          # normalisation the CircleCI job needed has no equivalent.
+          if [[ "${GIT_REF_TYPE}" == "tag" ]]; then
+            DELIVERY_TAG="${GIT_REF_NAME}"
+          elif [[ "${GIT_REF_NAME}" == "develop" ]]; then
+            DELIVERY_TAG="develop"
+          else
+            DELIVERY_TAG="latest"
+          fi
+
+          docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${DELIVERY_TAG}"
+          docker push "${IMAGE}:${DELIVERY_TAG}"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          GIT_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          GIT_REF_TYPE: ${{ github.ref_type }}
+          GIT_REF_NAME: ${{ github.ref_name }}

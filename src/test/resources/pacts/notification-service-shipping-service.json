@@ -1,0 +1,336 @@
+{
+  "consumer": {
+    "name": "notification-service"
+  },
+  "interactions": [
+    {
+      "comments": {
+        "testname": "com.ecommerce.notificationservice.contract.ShipmentEventsConsumerPactTest.shipmentCreated_isDecodedAndHandedToTheNotificationService(List)"
+      },
+      "contents": {
+        "content": {
+          "carrier": "DHL",
+          "customerId": "customer-42",
+          "estimatedDelivery": [
+            2026,
+            8,
+            28,
+            14,
+            30,
+            15,
+            123456789
+          ],
+          "orderId": 7,
+          "shipmentId": 31,
+          "trackingNumber": "TRACK-1A2B3C4D5E"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "a shipment.created event",
+      "key": "4a836d70",
+      "matchingRules": {
+        "body": {
+          "$.carrier": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.customerId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.estimatedDelivery": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "min": 5
+              }
+            ]
+          },
+          "$.estimatedDelivery[0]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[1]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[2]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[3]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[4]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[5]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.estimatedDelivery[6]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.orderId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.shipmentId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.trackingNumber": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "kafka_key": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "\\d+"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json",
+        "kafka_key": "7",
+        "kafka_topic": "shipment.created"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "payment 501 for order 7 has completed"
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "testname": "com.ecommerce.notificationservice.contract.ShipmentEventsConsumerPactTest.shipmentUpdated_isDecodedAndHandedToTheNotificationService(List)"
+      },
+      "contents": {
+        "content": {
+          "location": "Istanbul hub",
+          "newStatus": "SHIPPED",
+          "orderId": 7,
+          "shipmentId": 31,
+          "trackingNumber": "TRACK-1A2B3C4D5E",
+          "updatedAt": [
+            2026,
+            8,
+            23,
+            14,
+            30,
+            15,
+            123456789
+          ]
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "a shipment.updated event",
+      "key": "54ce1750",
+      "matchingRules": {
+        "body": {
+          "$.location": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.newStatus": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.orderId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.shipmentId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.trackingNumber": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.updatedAt": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "min": 5
+              }
+            ]
+          },
+          "$.updatedAt[0]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[1]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[2]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[3]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[4]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[5]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          },
+          "$.updatedAt[6]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "integer"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "kafka_key": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "\\d+"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json",
+        "kafka_key": "7",
+        "kafka_topic": "shipment.updated"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "shipment 31 for order 7 is being shipped"
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    }
+  ],
+  "metadata": {
+    "pact-jvm": {
+      "version": "4.7.5"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "shipping-service"
+  }
+}

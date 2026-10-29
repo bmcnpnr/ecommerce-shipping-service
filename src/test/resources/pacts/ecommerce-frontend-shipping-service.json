@@ -253,7 +253,14 @@
           "content": {
             "carrier": "DHL",
             "estimatedDelivery": "2026-10-29T11:00:00.123456",
-            "status": "PROCESSING",
+            "events": [
+              {
+                "description": "Left the warehouse",
+                "status": "SHIPPED",
+                "timestamp": "2026-10-29T11:00:00.123456"
+              }
+            ],
+            "status": "SHIPPED",
             "trackingNumber": "TRACK-1A2B3C4D5E"
           },
           "contentType": "application/json",
@@ -275,6 +282,41 @@
               ]
             },
             "$.estimatedDelivery": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.events": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.events[*].description": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.events[*].status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|PROCESSING|SHIPPED|OUT_FOR_DELIVERY|DELIVERED|RETURNED)$"
+                }
+              ]
+            },
+            "$.events[*].timestamp": {
               "combine": "AND",
               "matchers": [
                 {

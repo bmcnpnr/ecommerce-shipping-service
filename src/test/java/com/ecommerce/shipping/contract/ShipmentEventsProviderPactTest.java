@@ -5,6 +5,7 @@ import au.com.dius.pact.provider.PactVerifyProvider;
 import au.com.dius.pact.provider.junit5.MessageTestTarget;
 import au.com.dius.pact.provider.junit5.PactVerificationContext;
 import au.com.dius.pact.provider.junit5.PactVerificationInvocationContextProvider;
+import au.com.dius.pact.provider.junitsupport.Consumer;
 import au.com.dius.pact.provider.junitsupport.Provider;
 import au.com.dius.pact.provider.junitsupport.State;
 import au.com.dius.pact.provider.junitsupport.loader.PactFolder;
@@ -57,6 +58,7 @@ import static org.mockito.Mockito.when;
 @ActiveProfiles("test")
 @Provider("shipping-service")
 @PactFolder("pacts")
+@Consumer("notification-service")
 class ShipmentEventsProviderPactTest {
 
     @Autowired

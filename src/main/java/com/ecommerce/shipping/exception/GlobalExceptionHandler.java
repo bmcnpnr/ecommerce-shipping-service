@@ -24,6 +24,16 @@ public class GlobalExceptionHandler {
         return r(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), req.getRequestURI());
     }
 
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> validation(org.springframework.web.bind.MethodArgumentNotValidException ex, HttpServletRequest req) {
+        java.util.List<ErrorResponse.FieldError> errors = ex.getBindingResult().getFieldErrors().stream()
+            .map(f -> new ErrorResponse.FieldError(f.getField(), f.getDefaultMessage()))
+            .collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.badRequest().body(ErrorResponse.builder().timestamp(LocalDateTime.now())
+            .status(400).error("Bad Request").message("Validation failed").path(req.getRequestURI())
+            .correlationId(MDC.get("correlationId")).fieldErrors(errors).build());
+    }
+
     // Spring MVC raises these for malformed client requests. Without explicit
     // handlers they fall through to the Exception catch-all below and are
     // reported as 500, hiding the fact that the caller sent something invalid.

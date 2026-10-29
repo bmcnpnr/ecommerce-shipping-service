@@ -59,6 +59,15 @@
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc-test</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka-test</artifactId><scope>test</scope></dependency>
+        <!-- Integration tests (*IT in src/test/java/com/ecommerce/shipping/integration, run by failsafe):
+             real Postgres with the Flyway migrations and a real Kafka broker via Testcontainers, same
+             images as prod. Versions come from the Boot-managed testcontainers-bom; the 2.x artifact
+             ids carry the testcontainers- prefix. -->
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-testcontainers</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-kafka</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.awaitility</groupId><artifactId>awaitility</artifactId><scope>test</scope></dependency>
         <!-- Contract tests (Pact, see src/test/java/com/ecommerce/shipping/contract): consumer/junit5 writes the pact
              this service holds against payment-service's payment.completed event (target/pacts); provider/junit5
              replays the pact notification-service holds against the shipment.* events this service publishes
@@ -83,6 +92,24 @@
                 <configuration>
                     <systemPropertyVariables>
                         <!-- pact-jvm posts anonymous usage metrics unless told not to. -->
+                        <pact_do_not_track>true</pact_do_not_track>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <!-- Runs the *IT classes (Testcontainers: Postgres + Kafka) in integration-test/verify. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <systemPropertyVariables>
                         <pact_do_not_track>true</pact_do_not_track>
                     </systemPropertyVariables>
                 </configuration>

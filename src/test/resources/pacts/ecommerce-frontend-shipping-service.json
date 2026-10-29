@@ -1,0 +1,412 @@
+{
+  "consumer": {
+    "name": "ecommerce-frontend"
+  },
+  "interactions": [
+    {
+      "description": "a request for the history of shipment 31",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "shipment 31 for order 7 is being shipped"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "GET",
+        "path": "/api/v1/shipments/31/history"
+      },
+      "response": {
+        "body": {
+          "content": [
+            {
+              "eventDescription": "Shipment created",
+              "eventTimestamp": "2026-10-29T11:00:00.123456",
+              "id": 311,
+              "newStatus": "PROCESSING"
+            }
+          ],
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$[*].eventDescription": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$[*].eventTimestamp": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$[*].id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$[*].newStatus": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|PROCESSING|SHIPPED|OUT_FOR_DELIVERY|DELIVERED|RETURNED)$"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request for the shipment of order 7",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "shipment 31 for order 7 is being shipped"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": [
+            "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInVzZXJJZCI6NDIsInJvbGUiOiJDVVNUT01FUiIsImlhdCI6MTc5ODc2MTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.bmRawmVR8OEdvaEgFDjrzo87mRLZDJX7GfVnVBKXsV4"
+          ]
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer [A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "GET",
+        "path": "/api/v1/shipments/order/7"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "carrier": "DHL",
+            "createdAt": "2026-10-29T11:00:00.123456",
+            "destinationAddress": "Customer Address",
+            "estimatedDelivery": "2026-10-29T11:00:00.123456",
+            "id": 31,
+            "orderId": 7,
+            "originAddress": "Warehouse, 123 Storage St",
+            "status": "PROCESSING",
+            "trackingNumber": "TRACK-1A2B3C4D5E"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.carrier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.createdAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.destinationAddress": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.estimatedDelivery": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.originAddress": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|PROCESSING|SHIPPED|OUT_FOR_DELIVERY|DELIVERED|RETURNED)$"
+                }
+              ]
+            },
+            "$.trackingNumber": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "an anonymous request to track TRACK-1A2B3C4D5E",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "shipment 31 for order 7 is being shipped"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/shipments/tracking/TRACK-1A2B3C4D5E"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "carrier": "DHL",
+            "createdAt": "2026-10-29T11:00:00.123456",
+            "destinationAddress": "Customer Address",
+            "estimatedDelivery": "2026-10-29T11:00:00.123456",
+            "id": 31,
+            "orderId": 7,
+            "originAddress": "Warehouse, 123 Storage St",
+            "status": "PROCESSING",
+            "trackingNumber": "TRACK-1A2B3C4D5E"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.carrier": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.createdAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.destinationAddress": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.estimatedDelivery": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
+                }
+              ]
+            },
+            "$.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.orderId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.originAddress": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(PENDING|PROCESSING|SHIPPED|OUT_FOR_DELIVERY|DELIVERED|RETURNED)$"
+                }
+              ]
+            },
+            "$.trackingNumber": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "an anonymous request to track TRACK-UNKNOWN",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "no shipment has tracking number TRACK-UNKNOWN"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/shipments/tracking/TRACK-UNKNOWN"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "message": "Shipment not found: TRACK-UNKNOWN"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.message": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 404
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "17.1.4"
+    },
+    "pactRust": {
+      "ffi": "0.5.8",
+      "models": "1.3.16"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "shipping-service"
+  }
+}

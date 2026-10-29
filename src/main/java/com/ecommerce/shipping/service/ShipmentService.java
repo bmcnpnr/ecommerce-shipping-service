@@ -66,7 +66,12 @@ public class ShipmentService {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found: " + shipmentId));
 
-        ShipmentStatus newStatus = ShipmentStatus.valueOf(statusStr);
+        ShipmentStatus newStatus;
+        try {
+            newStatus = ShipmentStatus.valueOf(statusStr);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidShipmentStateException("Unknown shipment status: " + statusStr);
+        }
 
         if (shipment.getStatus() == ShipmentStatus.DELIVERED || shipment.getStatus() == ShipmentStatus.RETURNED) {
             throw new InvalidShipmentStateException("Cannot update status of a " + shipment.getStatus() + " shipment");

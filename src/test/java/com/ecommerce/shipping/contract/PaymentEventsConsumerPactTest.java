@@ -50,7 +50,7 @@ import static org.mockito.Mockito.when;
  * is the message shape shipping-service can handle; the test publishes exactly that
  * message to an embedded Kafka broker and lets the <em>production</em> consumer path
  * — {@code KafkaProducerConfig}'s listener container factory, {@code StringDeserializer}
- * + {@code JsonMessageConverter}, the {@code @KafkaListener} method — process it.
+ * + {@code JacksonJsonMessageConverter}, the {@code @KafkaListener} method — process it.
  *
  * <p>shipping-service reads {@code orderId} and {@code customerId}, but deserializes the
  * whole record into {@code PaymentCompletedEvent}, so a type change in any field it

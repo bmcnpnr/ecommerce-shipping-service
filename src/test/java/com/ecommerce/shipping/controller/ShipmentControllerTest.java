@@ -1,9 +1,12 @@
 package com.ecommerce.shipping.controller;
 
 import com.ecommerce.shipping.dto.CreateShipmentRequest;
+import com.ecommerce.shipping.dto.PublicTrackingDTO;
+import com.ecommerce.shipping.dto.PublicTrackingEventDTO;
 import com.ecommerce.shipping.dto.ShipmentDTO;
 import com.ecommerce.shipping.dto.ShipmentEventDTO;
-import com.ecommerce.shipping.exception.InvalidShipmentStateException;
+import com.ecommerce.shipping.exception.DuplicateShipmentException;
+import com.ecommerce.shipping.exception.IllegalStatusTransitionException;
 import com.ecommerce.shipping.exception.ShipmentNotFoundException;
 import com.ecommerce.shipping.service.ShipmentService;
 import org.junit.jupiter.api.Test;
@@ -13,6 +16,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +50,14 @@ class ShipmentControllerTest {
 
     @MockitoBean private ShipmentService shipmentService;
 
+    private static MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
+        return request.header("X-Username", "root").header("X-User-Role", "ADMIN");
+    }
+
+    private static MockHttpServletRequestBuilder asAlice(MockHttpServletRequestBuilder request) {
+        return request.header("X-Username", "alice").header("X-User-Role", "CUSTOMER");
+    }
+
     private static ShipmentDTO dto(String status) {
         return ShipmentDTO.builder().id(31L).orderId(7L).customerId("alice").trackingNumber("TRACK-3F2A9C1B-4")
                 .status(status).carrier("DHL").originAddress("Warehouse").destinationAddress("Home")
@@ -59,7 +71,7 @@ class ShipmentControllerTest {
     void createShipment_returns201_withBody() throws Exception {
         given(shipmentService.createShipment(any())).willReturn(dto("PENDING"));
 
-        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON).content("""
+        mockMvc.perform(asAdmin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"orderId":7,"customerId":"alice","originAddress":"Warehouse","destinationAddress":"Home","carrier":"UPS"}"""))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(31))
@@ -79,7 +91,7 @@ class ShipmentControllerTest {
     void getByOrderId_returns200() throws Exception {
         given(shipmentService.getShipmentByOrderId(7L)).willReturn(dto("SHIPPED"));
 
-        mockMvc.perform(get("/api/v1/shipments/order/7"))
+        mockMvc.perform(asAlice(get("/api/v1/shipments/order/7")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(7))
                 .andExpect(jsonPath("$.status").value("SHIPPED"));
@@ -87,11 +99,21 @@ class ShipmentControllerTest {
 
     @Test
     void trackShipment_returns200() throws Exception {
-        given(shipmentService.getShipmentByTrackingNumber("TRACK-3F2A9C1B-4")).willReturn(dto("SHIPPED"));
+        given(shipmentService.getShipmentByTrackingNumber("TRACK-3F2A9C1B-4")).willReturn(PublicTrackingDTO.builder()
+                .trackingNumber("TRACK-3F2A9C1B-4").status("SHIPPED").carrier("DHL")
+                .estimatedDelivery(LocalDateTime.of(2026, 11, 3, 14, 30, 15))
+                .events(List.of(PublicTrackingEventDTO.builder().status("SHIPPED").location("Hub").description("Left")
+                        .timestamp(LocalDateTime.of(2026, 10, 29, 11, 0)).build())).build());
 
         mockMvc.perform(get("/api/v1/shipments/tracking/TRACK-3F2A9C1B-4"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.trackingNumber").value("TRACK-3F2A9C1B-4"));
+                .andExpect(jsonPath("$.trackingNumber").value("TRACK-3F2A9C1B-4"))
+                .andExpect(jsonPath("$.status").value("SHIPPED"))
+                .andExpect(jsonPath("$.events[0].timestamp").value("2026-10-29T11:00:00"))
+                .andExpect(jsonPath("$.customerId").doesNotExist())
+                .andExpect(jsonPath("$.orderId").doesNotExist())
+                .andExpect(jsonPath("$.originAddress").doesNotExist())
+                .andExpect(jsonPath("$.destinationAddress").doesNotExist());
     }
 
     @Test
@@ -99,7 +121,7 @@ class ShipmentControllerTest {
         given(shipmentService.updateShipmentStatus(31L, "SHIPPED", "Istanbul hub", "Left the warehouse"))
                 .willReturn(dto("SHIPPED"));
 
-        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON).content("""
+        mockMvc.perform(asAdmin(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"status":"SHIPPED","location":"Istanbul hub","description":"Left the warehouse"}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SHIPPED"));
@@ -109,20 +131,21 @@ class ShipmentControllerTest {
     void updateStatus_optionalFieldsMayBeOmitted() throws Exception {
         given(shipmentService.updateShipmentStatus(31L, "PROCESSING", null, null)).willReturn(dto("PROCESSING"));
 
-        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(asAdmin(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"PROCESSING\"}"))
                 .andExpect(status().isOk());
     }
 
     @Test
     void getHistory_returnsArray() throws Exception {
+        given(shipmentService.getShipmentOwner(31L)).willReturn("alice");
         given(shipmentService.getShipmentHistory(31L)).willReturn(List.of(
                 ShipmentEventDTO.builder().id(1L).shipmentId(31L).newStatus("PROCESSING").eventDescription("a")
                         .eventTimestamp(LocalDateTime.of(2026, 10, 29, 10, 0)).build(),
                 ShipmentEventDTO.builder().id(2L).shipmentId(31L).newStatus("SHIPPED").eventDescription("b").location("Hub")
                         .eventTimestamp(LocalDateTime.of(2026, 10, 29, 11, 0)).build()));
 
-        mockMvc.perform(get("/api/v1/shipments/31/history"))
+        mockMvc.perform(asAlice(get("/api/v1/shipments/31/history")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].newStatus").value("PROCESSING"))
@@ -136,7 +159,7 @@ class ShipmentControllerTest {
     void notFound_is404_withErrorBody_andEchoedCorrelationId() throws Exception {
         given(shipmentService.getShipmentByOrderId(99L)).willThrow(new ShipmentNotFoundException("Shipment not found for order: 99"));
 
-        mockMvc.perform(get("/api/v1/shipments/order/99").header("X-Correlation-Id", "cid-42"))
+        mockMvc.perform(asAlice(get("/api/v1/shipments/order/99")).header("X-Correlation-Id", "cid-42"))
                 .andExpect(status().isNotFound())
                 .andExpect(header().string("X-Correlation-Id", "cid-42"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -149,7 +172,7 @@ class ShipmentControllerTest {
 
     @Test
     void trackingNotFound_is404_withGeneratedCorrelationId() throws Exception {
-        given(shipmentService.getShipmentByTrackingNumber("NOPE")).willThrow(new ShipmentNotFoundException("Shipment not found: NOPE"));
+        given(shipmentService.getShipmentByTrackingNumber("NOPE")).willThrow(new ShipmentNotFoundException("Shipment not found"));
 
         mockMvc.perform(get("/api/v1/shipments/tracking/NOPE"))
                 .andExpect(status().isNotFound())
@@ -159,33 +182,79 @@ class ShipmentControllerTest {
 
     @Test
     void historyOfUnknownShipment_is404() throws Exception {
+        given(shipmentService.getShipmentOwner(5L)).willThrow(new ShipmentNotFoundException("Shipment not found: 5"));
         given(shipmentService.getShipmentHistory(5L)).willThrow(new ShipmentNotFoundException("Shipment not found: 5"));
 
-        mockMvc.perform(get("/api/v1/shipments/5/history"))
+        mockMvc.perform(asAlice(get("/api/v1/shipments/5/history")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Shipment not found: 5"));
     }
 
     @Test
-    void updateOfTerminalShipment_is400() throws Exception {
+    void updateOfTerminalShipment_is409() throws Exception {
         given(shipmentService.updateShipmentStatus(31L, "SHIPPED", null, null))
-                .willThrow(new InvalidShipmentStateException("Cannot update status of a DELIVERED shipment"));
+                .willThrow(new IllegalStatusTransitionException("Cannot update status of a DELIVERED shipment"));
 
-        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(asAdmin(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"SHIPPED\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Conflict"))
                 .andExpect(jsonPath("$.message").value("Cannot update status of a DELIVERED shipment"));
     }
 
     @Test
-    void duplicateCreate_is400() throws Exception {
-        given(shipmentService.createShipment(any())).willThrow(new InvalidShipmentStateException("Shipment already exists for order: 7"));
+    void duplicateCreate_is409() throws Exception {
+        given(shipmentService.createShipment(any())).willThrow(new DuplicateShipmentException("Shipment already exists for order: 7"));
 
-        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON).content("""
+        mockMvc.perform(asAdmin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"orderId":7,"customerId":"alice","originAddress":"W","destinationAddress":"H"}"""))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Shipment already exists for order: 7"));
+    }
+
+    @Test
+    void adminEndpoints_withoutIdentity_are401_andAsCustomer_are403() throws Exception {
+        String create = "{\"orderId\":7,\"customerId\":\"alice\",\"originAddress\":\"W\",\"destinationAddress\":\"H\"}";
+        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON).content(create)).andExpect(status().isUnauthorized());
+        mockMvc.perform(asAlice(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON).content(create)).andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SHIPPED\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(asAlice(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SHIPPED\"}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").value("Access denied"));
+        // role comparison is exact
+        for (String role : new String[]{"admin", "Admin", " ADMIN", "ROLE_ADMIN"}) {
+            mockMvc.perform(post("/api/v1/shipments").header("X-Username", "root").header("X-User-Role", role)
+                    .contentType(MediaType.APPLICATION_JSON).content(create)).andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(shipmentService);
+    }
+
+    @Test
+    void ownerEndpoints_withoutIdentity_are401_andForSomeoneElse_are403() throws Exception {
+        given(shipmentService.getShipmentByOrderId(7L)).willReturn(dto("SHIPPED"));
+        given(shipmentService.getShipmentOwner(31L)).willReturn("bob");
+
+        mockMvc.perform(get("/api/v1/shipments/order/7")).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Authentication required"));
+        mockMvc.perform(get("/api/v1/shipments/31/history")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/shipments/order/7").header("X-Username", "bob").header("X-User-Role", "CUSTOMER"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").value("Access denied"));
+        mockMvc.perform(asAlice(get("/api/v1/shipments/31/history"))).andExpect(status().isForbidden());
+        mockMvc.perform(asAdmin(get("/api/v1/shipments/order/7"))).andExpect(status().isOk());
+        mockMvc.perform(asAdmin(get("/api/v1/shipments/31/history"))).andExpect(status().isOk());
+    }
+
+    @Test
+    void apiResponses_carryHardeningHeaders() throws Exception {
+        mockMvc.perform(get("/api/v1/shipments/tracking/NOPE"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    @Test
+    void invalidCorrelationId_isReplacedNotEchoed() throws Exception {
+        mockMvc.perform(get("/api/v1/shipments/tracking/NOPE").header("X-Correlation-Id", "bad id\twith spaces"))
+                .andExpect(header().string("X-Correlation-Id", matchesPattern(UUID_PATTERN)));
     }
 
     @Test
@@ -198,21 +267,21 @@ class ShipmentControllerTest {
 
     @Test
     void malformedJson_is400() throws Exception {
-        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON).content("{\"status\":"))
+        mockMvc.perform(asAdmin(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON).content("{\"status\":"))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(shipmentService);
     }
 
     @Test
     void missingBody_is400() throws Exception {
-        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(asAdmin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(shipmentService);
     }
 
     @Test
     void wrongMethodOnTracking_is405() throws Exception {
-        mockMvc.perform(post("/api/v1/shipments/tracking/TRACK-1"))
+        mockMvc.perform(asAdmin(post("/api/v1/shipments/tracking/TRACK-1")))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.status").value(405))
                 .andExpect(jsonPath("$.error").value("Method Not Allowed"));
@@ -222,7 +291,7 @@ class ShipmentControllerTest {
     void unexpectedServiceFailure_is500_withGenericMessage() throws Exception {
         given(shipmentService.getShipmentByOrderId(anyLong())).willThrow(new IllegalStateException("connection refused"));
 
-        mockMvc.perform(get("/api/v1/shipments/order/1"))
+        mockMvc.perform(asAlice(get("/api/v1/shipments/order/1")))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("Internal Server Error"))
                 .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
@@ -230,7 +299,7 @@ class ShipmentControllerTest {
 
     @Test
     void createShipment_missingRequiredFields_is400_withFieldErrors() throws Exception {
-        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(asAdmin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"customerId\":\" \",\"originAddress\":\"W\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
@@ -243,7 +312,7 @@ class ShipmentControllerTest {
 
     @Test
     void updateStatus_blankStatus_is400() throws Exception {
-        mockMvc.perform(patch("/api/v1/shipments/31/status").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(asAdmin(patch("/api/v1/shipments/31/status")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("status"));

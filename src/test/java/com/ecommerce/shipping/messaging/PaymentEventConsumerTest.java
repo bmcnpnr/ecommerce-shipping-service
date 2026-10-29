@@ -6,6 +6,9 @@ import com.ecommerce.shipping.model.Shipment;
 import com.ecommerce.shipping.model.ShipmentStatus;
 import com.ecommerce.shipping.repository.ShipmentRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -56,7 +59,7 @@ class PaymentEventConsumerTest {
         assertThat(s.getCarrier()).isEqualTo("DHL");
         assertThat(s.getOriginAddress()).isEqualTo("Warehouse, 123 Storage St");
         assertThat(s.getDestinationAddress()).isEqualTo("Customer Address");
-        assertThat(s.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]");
+        assertThat(s.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]{8}");
         assertThat(s.getEstimatedDelivery()).isBetween(before.plusDays(5), LocalDateTime.now().plusDays(5));
         assertThat(s.getActualDelivery()).isNull();
 
@@ -78,6 +81,44 @@ class PaymentEventConsumerTest {
         consumer.handlePaymentCompleted(payment(7L));
 
         verify(shipmentRepository, never()).save(any());
+        verifyNoInteractions(shipmentEventProducer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-5.00", "0.00"})
+    void zeroOrNegativeAmount_isIgnored_withoutShipmentOrEvent(String amount) {
+        PaymentCompletedEvent event = payment(7L);
+        event.setAmount(new BigDecimal(amount));
+
+        consumer.handlePaymentCompleted(event);
+
+        verifyNoInteractions(shipmentRepository, shipmentEventProducer);
+    }
+
+    @Test
+    void missingAmountOrIds_areIgnored() {
+        PaymentCompletedEvent noAmount = payment(7L);
+        noAmount.setAmount(null);
+        PaymentCompletedEvent noOrder = payment(7L);
+        noOrder.setOrderId(null);
+        PaymentCompletedEvent noCustomer = payment(7L);
+        noCustomer.setCustomerId(" ");
+
+        consumer.handlePaymentCompleted(noAmount);
+        consumer.handlePaymentCompleted(noOrder);
+        consumer.handlePaymentCompleted(noCustomer);
+        consumer.handlePaymentCompleted(null);
+
+        verifyNoInteractions(shipmentRepository, shipmentEventProducer);
+    }
+
+    @Test
+    void concurrentDuplicate_lostTheUniqueRace_isIdempotent() {
+        when(shipmentRepository.findByOrderId(7L)).thenReturn(Optional.empty(), Optional.of(Shipment.builder().id(31L).orderId(7L).build()));
+        when(shipmentRepository.save(any(Shipment.class))).thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        consumer.handlePaymentCompleted(payment(7L));
+
         verifyNoInteractions(shipmentEventProducer);
     }
 }

@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service @RequiredArgsConstructor
@@ -29,10 +28,10 @@ public class ShipmentService {
     @Transactional
     public ShipmentDTO createShipment(CreateShipmentRequest request) {
         shipmentRepository.findByOrderId(request.getOrderId()).ifPresent(s -> {
-            throw new InvalidShipmentStateException("Shipment already exists for order: " + request.getOrderId());
+            throw new DuplicateShipmentException("Shipment already exists for order: " + request.getOrderId());
         });
 
-        String trackingNumber = "TRACK-" + UUID.randomUUID().toString().substring(0, 10).toUpperCase();
+        String trackingNumber = TrackingNumbers.generate();
 
         Shipment shipment = Shipment.builder()
                 .orderId(request.getOrderId())
@@ -55,10 +54,36 @@ public class ShipmentService {
                 .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found for order: " + orderId)));
     }
 
+    /** Public lookup: only tracking number, status, carrier, ETA and the event history. */
     @Transactional(readOnly = true)
-    public ShipmentDTO getShipmentByTrackingNumber(String trackingNumber) {
-        return toDTO(shipmentRepository.findByTrackingNumber(trackingNumber)
-                .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found: " + trackingNumber)));
+    public PublicTrackingDTO getShipmentByTrackingNumber(String trackingNumber) {
+        if (!isPlausibleTrackingNumber(trackingNumber)) {
+            throw new ShipmentNotFoundException("Shipment not found");
+        }
+        Shipment s = shipmentRepository.findByTrackingNumber(trackingNumber)
+                .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found"));
+        List<PublicTrackingEventDTO> events = shipmentEventRepository.findByShipmentIdOrderByEventTimestampAsc(s.getId()).stream()
+                .map(e -> PublicTrackingEventDTO.builder()
+                        .status(e.getNewStatus() != null ? e.getNewStatus().name() : null)
+                        .location(e.getLocation()).description(e.getEventDescription())
+                        .timestamp(e.getEventTimestamp()).build())
+                .collect(Collectors.toList());
+        return PublicTrackingDTO.builder().trackingNumber(s.getTrackingNumber()).status(s.getStatus().name())
+                .carrier(s.getCarrier()).estimatedDelivery(s.getEstimatedDelivery()).events(events).build();
+    }
+
+    /** Anything with control characters (NUL included) or beyond the column length cannot be a tracking number. */
+    private static boolean isPlausibleTrackingNumber(String t) {
+        if (t == null || t.isEmpty() || t.length() > 100) return false;
+        return t.chars().noneMatch(c -> c < 0x20 || c == 0x7F);
+    }
+
+    /** The customerId owning a shipment (404 if unknown), for the controller's ownership check. */
+    @Transactional(readOnly = true)
+    public String getShipmentOwner(Long shipmentId) {
+        return shipmentRepository.findById(shipmentId)
+                .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found: " + shipmentId))
+                .getCustomerId();
     }
 
     @Transactional
@@ -70,11 +95,13 @@ public class ShipmentService {
         try {
             newStatus = ShipmentStatus.valueOf(statusStr);
         } catch (IllegalArgumentException e) {
-            throw new InvalidShipmentStateException("Unknown shipment status: " + statusStr);
+            throw new InvalidShipmentStateException("Unknown shipment status");
         }
 
-        if (shipment.getStatus() == ShipmentStatus.DELIVERED || shipment.getStatus() == ShipmentStatus.RETURNED) {
-            throw new InvalidShipmentStateException("Cannot update status of a " + shipment.getStatus() + " shipment");
+        if (!shipment.getStatus().canMoveTo(newStatus)) {
+            throw new IllegalStatusTransitionException(shipment.getStatus().next().isEmpty()
+                    ? "Cannot update status of a " + shipment.getStatus() + " shipment"
+                    : "Cannot change status from " + shipment.getStatus() + " to " + newStatus);
         }
 
         shipment.setStatus(newStatus);

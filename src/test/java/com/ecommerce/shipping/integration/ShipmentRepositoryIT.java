@@ -40,10 +40,10 @@ class ShipmentRepositoryIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void flywayAppliedBothMigrations() {
+    void flywayAppliedAllMigrations() {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank");
-        assertThat(rows).extracting(r -> r.get("version")).containsExactly("1", "2");
+        assertThat(rows).extracting(r -> r.get("version")).containsExactly("1", "2", "3");
         assertThat(rows).allSatisfy(r -> assertThat(r.get("success")).isEqualTo(true));
     }
 
@@ -87,6 +87,14 @@ class ShipmentRepositoryIT extends AbstractIntegrationTest {
         assertThat(shipmentRepository.findByCustomerId(customer)).extracting(Shipment::getId)
                 .containsExactlyInAnyOrder(a.getId(), b.getId());
         assertThat(shipmentRepository.findByCustomerId("nobody-" + UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void orderId_isUnique() {
+        Shipment first = shipmentRepository.save(newShipment(nextOrderId(), "alice"));
+        Shipment second = newShipment(first.getOrderId(), "bob");
+
+        assertThatThrownBy(() -> shipmentRepository.saveAndFlush(second)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

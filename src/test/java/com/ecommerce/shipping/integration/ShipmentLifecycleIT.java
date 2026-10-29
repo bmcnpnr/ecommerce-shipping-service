@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDateTime;
@@ -33,7 +34,7 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
     @Autowired JdbcTemplate jdbc;
 
     private long createShipment(long orderId) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON).content("""
+        String body = mockMvc.perform(admin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"orderId":%d,"customerId":"alice","originAddress":"Warehouse, 123 Storage St",\
                         "destinationAddress":"Bagdat Cd. 10, Istanbul","carrier":"UPS"}""".formatted(orderId)))
                 .andExpect(status().isCreated())
@@ -42,8 +43,12 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
         return JSON.readTree(body).get("id").asLong();
     }
 
+    private static MockHttpServletRequestBuilder admin(MockHttpServletRequestBuilder request) {
+        return request.header("X-Username", "root").header("X-User-Role", "ADMIN");
+    }
+
     private ResultActions patchStatus(long id, String json) throws Exception {
-        return mockMvc.perform(patch("/api/v1/shipments/{id}/status", id).contentType(MediaType.APPLICATION_JSON).content(json));
+        return mockMvc.perform(admin(patch("/api/v1/shipments/{id}/status", id)).contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
     private static LocalDateTime fromIntArray(JsonNode a) {
@@ -82,7 +87,7 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
         assertThat(row.get("updated_at")).isNotNull();
 
         // shipment_events rows, through the history endpoint (oldest first)
-        mockMvc.perform(get("/api/v1/shipments/{id}/history", id))
+        mockMvc.perform(admin(get("/api/v1/shipments/{id}/history", id)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))
                 .andExpect(jsonPath("$[0].newStatus").value("PROCESSING"))
@@ -123,25 +128,28 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
     void terminalShipment_rejectsFurtherUpdates_withoutSideEffects() throws Exception {
         long orderId = nextOrderId();
         long id = createShipment(orderId);
+        patchStatus(id, "{\"status\":\"PROCESSING\"}").andExpect(status().isOk());
+        patchStatus(id, "{\"status\":\"SHIPPED\"}").andExpect(status().isOk());
         patchStatus(id, "{\"status\":\"RETURNED\"}").andExpect(status().isOk());
 
         for (ShipmentStatus next : ShipmentStatus.values()) {
             patchStatus(id, "{\"status\":\"" + next + "\"}")
-                    .andExpect(status().isBadRequest())
+                    .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Cannot update status of a RETURNED shipment"));
         }
 
         Shipment after = shipmentRepository.findById(id).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(ShipmentStatus.RETURNED);
         assertThat(after.getActualDelivery()).isNull();
-        assertThat(historyRows(id)).isEqualTo(1);
+        assertThat(historyRows(id)).isEqualTo(3);
         // Barrier on the same partition: a later update for another shipment.
         long barrierOrder = nextOrderId();
         patchStatus(createShipment(barrierOrder), "{\"status\":\"PROCESSING\"}").andExpect(status().isOk());
         String barrierKey = String.valueOf(barrierOrder);
         assertThat(awaitRecords(SHIPMENT_UPDATED, null, r -> r.stream().anyMatch(x -> barrierKey.equals(x.key()))))
                 .filteredOn(r -> String.valueOf(orderId).equals(r.key()))
-                .singleElement().satisfies(r -> assertThat(r.value().get("newStatus").asString()).isEqualTo("RETURNED"));
+                .extracting(r -> r.value().get("newStatus").asString())
+                .containsExactly("PROCESSING", "SHIPPED", "RETURNED");
     }
 
     @Test
@@ -150,22 +158,23 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
         long id = createShipment(orderId);
         String tracking = shipmentRepository.findById(id).orElseThrow().getTrackingNumber();
 
-        mockMvc.perform(get("/api/v1/shipments/order/{o}", orderId)).andExpect(status().isOk())
+        mockMvc.perform(admin(get("/api/v1/shipments/order/{o}", orderId))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.carrier").value("UPS"));
         mockMvc.perform(get("/api/v1/shipments/tracking/{t}", tracking)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderId").value(orderId));
-        mockMvc.perform(get("/api/v1/shipments/{id}/history", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.trackingNumber").value(tracking))
+                .andExpect(jsonPath("$.orderId").doesNotExist());
+        mockMvc.perform(admin(get("/api/v1/shipments/{id}/history", id))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
-        mockMvc.perform(post("/api/v1/shipments").contentType(MediaType.APPLICATION_JSON).content("""
+        mockMvc.perform(admin(post("/api/v1/shipments")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"orderId":%d,"customerId":"bob","originAddress":"W","destinationAddress":"H"}""".formatted(orderId)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Shipment already exists for order: " + orderId));
-        mockMvc.perform(get("/api/v1/shipments/order/{o}", -1)).andExpect(status().isNotFound());
+        mockMvc.perform(admin(get("/api/v1/shipments/order/{o}", -1))).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/shipments/tracking/{t}", tracking.toLowerCase())).andExpect(status().isNotFound());
         patchStatus(Long.MAX_VALUE, "{\"status\":\"SHIPPED\"}").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Shipment not found: " + Long.MAX_VALUE));
-        mockMvc.perform(get("/api/v1/shipments/{id}/history", Long.MAX_VALUE)).andExpect(status().isNotFound());
+        mockMvc.perform(admin(get("/api/v1/shipments/{id}/history", Long.MAX_VALUE))).andExpect(status().isNotFound());
     }
 
     @Test
@@ -181,16 +190,15 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
 
     /**
      * shipment.updated is sent inside the transaction, before commit. An over-long location
-     * still announces nothing: the cascaded shipment_events row uses IDENTITY ids, so Hibernate
-     * inserts it during save() (before the send) and the VARCHAR(255) overflow aborts there.
-     * (The error itself is still mapped to 500, see docs A-4.)
+     * still announces nothing. Since S-80 the over-long location is refused by request validation (400)
+     * before the service runs; the database never sees it.
      */
     @Test
     void locationOverflow_isRolledBack_andPublishesNoShipmentUpdated() throws Exception {
         long orderId = nextOrderId();
         long id = createShipment(orderId);
 
-        patchStatus(id, "{\"status\":\"SHIPPED\",\"location\":\"" + "x".repeat(300) + "\"}");
+        patchStatus(id, "{\"status\":\"PROCESSING\",\"location\":\"" + "x".repeat(300) + "\"}").andExpect(status().isBadRequest());
 
         assertThat(shipmentRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ShipmentStatus.PENDING);
         assertThat(historyRows(id)).isZero();

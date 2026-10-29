@@ -1,6 +1,7 @@
 package com.ecommerce.shipping.service;
 
 import com.ecommerce.shipping.dto.CreateShipmentRequest;
+import com.ecommerce.shipping.dto.PublicTrackingDTO;
 import com.ecommerce.shipping.dto.ShipmentDTO;
 import com.ecommerce.shipping.dto.ShipmentEventDTO;
 import com.ecommerce.shipping.event.ShipmentUpdatedEvent;
@@ -64,7 +65,7 @@ class ShipmentServiceTest {
         when(shipmentRepository.findByOrderId(10L)).thenReturn(Optional.of(testShipment));
         assertThatThrownBy(() -> shipmentService.createShipment(
                 CreateShipmentRequest.builder().orderId(10L).customerId("u").originAddress("A").destinationAddress("B").build()))
-                .isInstanceOf(InvalidShipmentStateException.class);
+                .isInstanceOf(DuplicateShipmentException.class);
     }
 
     @Test
@@ -72,6 +73,13 @@ class ShipmentServiceTest {
         when(shipmentRepository.findByTrackingNumber("UNKNOWN")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> shipmentService.getShipmentByTrackingNumber("UNKNOWN"))
                 .isInstanceOf(ShipmentNotFoundException.class);
+    }
+
+    @Test
+    void getShipmentByTrackingNumber_withControlCharacters_isNotFound_withoutTouchingTheDatabase() {
+        assertThatThrownBy(() -> shipmentService.getShipmentByTrackingNumber("TRACK-" + (char) 0 + "ABC"))
+                .isInstanceOf(ShipmentNotFoundException.class);
+        verifyNoInteractions(shipmentRepository);
     }
 
     @Test
@@ -100,7 +108,7 @@ class ShipmentServiceTest {
         assertThat(result.getOriginAddress()).isEqualTo("A");
         assertThat(result.getDestinationAddress()).isEqualTo("B");
         assertThat(result.getCarrier()).isEqualTo("DHL");
-        assertThat(result.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]");
+        assertThat(result.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]{8}");
         assertThat(result.getActualDelivery()).isNull();
         assertThat(result.getCreatedAt()).isNotNull();
         // Documented: the requested estimatedDelivery is ignored, it is always now + 5 days.
@@ -179,7 +187,22 @@ class ShipmentServiceTest {
     @Test
     void getShipmentByTrackingNumber_found() {
         when(shipmentRepository.findByTrackingNumber("TRACK-ABC")).thenReturn(Optional.of(testShipment));
-        assertThat(shipmentService.getShipmentByTrackingNumber("TRACK-ABC").getOrderId()).isEqualTo(10L);
+        testShipment.setEstimatedDelivery(LocalDateTime.of(2026, 11, 3, 14, 30));
+        when(shipmentEventRepository.findByShipmentIdOrderByEventTimestampAsc(1L)).thenReturn(List.of(
+                ShipmentEvent.builder().newStatus(ShipmentStatus.PROCESSING).location("Hub").eventDescription("Packed")
+                        .eventTimestamp(LocalDateTime.of(2026, 10, 29, 10, 0)).build()));
+
+        PublicTrackingDTO dto = shipmentService.getShipmentByTrackingNumber("TRACK-ABC");
+
+        assertThat(dto.getTrackingNumber()).isEqualTo("TRACK-ABC");
+        assertThat(dto.getStatus()).isEqualTo("PENDING");
+        assertThat(dto.getEstimatedDelivery()).isEqualTo(LocalDateTime.of(2026, 11, 3, 14, 30));
+        assertThat(dto.getEvents()).singleElement().satisfies(e -> {
+            assertThat(e.getStatus()).isEqualTo("PROCESSING");
+            assertThat(e.getLocation()).isEqualTo("Hub");
+            assertThat(e.getDescription()).isEqualTo("Packed");
+            assertThat(e.getTimestamp()).isEqualTo(LocalDateTime.of(2026, 10, 29, 10, 0));
+        });
     }
 
     // ───────────────────────────── status state machine ─────────────────────────────
@@ -191,14 +214,10 @@ class ShipmentServiceTest {
         return TERMINAL.stream().flatMap(from -> Arrays.stream(ShipmentStatus.values()).map(to -> Arguments.of(from, to)));
     }
 
-    /**
-     * Every (non-terminal from, any to) pair. The documented rule
-     * (docs/api/shipping-service.md, PATCH /status) is that any status may be set from any
-     * non-terminal status, including the current or an earlier one.
-     */
+    /** Every legal (from, to) pair of the transition table (S-82). */
     static Stream<Arguments> transitionsOutOfANonTerminalState() {
-        return EnumSet.complementOf(TERMINAL).stream()
-                .flatMap(from -> Arrays.stream(ShipmentStatus.values()).map(to -> Arguments.of(from, to)));
+        return Arrays.stream(ShipmentStatus.values())
+                .flatMap(from -> from.next().stream().map(to -> Arguments.of(from, to)));
     }
 
     @ParameterizedTest(name = "{0} -> {1} is rejected")
@@ -234,8 +253,14 @@ class ShipmentServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = ShipmentStatus.class, names = "DELIVERED", mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = ShipmentStatus.class, names = {"PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "RETURNED"})
     void updateStatus_onlyDeliveredSetsActualDelivery(ShipmentStatus to) {
+        testShipment.setStatus(switch (to) {
+            case PROCESSING -> ShipmentStatus.PENDING;
+            case SHIPPED -> ShipmentStatus.PROCESSING;
+            case OUT_FOR_DELIVERY, RETURNED -> ShipmentStatus.SHIPPED;
+            default -> throw new IllegalArgumentException();
+        });
         when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -258,6 +283,7 @@ class ShipmentServiceTest {
 
     @Test
     void updateStatus_appendsHistoryEvent_withGivenLocationAndDescription() {
+        testShipment.setStatus(ShipmentStatus.PROCESSING);
         when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         LocalDateTime before = LocalDateTime.now();
@@ -296,15 +322,17 @@ class ShipmentServiceTest {
 
         shipmentService.updateShipmentStatus(1L, "PROCESSING", null, null);
         shipmentService.updateShipmentStatus(1L, "SHIPPED", null, null);
+        shipmentService.updateShipmentStatus(1L, "OUT_FOR_DELIVERY", null, null);
         shipmentService.updateShipmentStatus(1L, "DELIVERED", null, null);
 
         assertThat(testShipment.getEvents()).extracting(ShipmentEvent::getNewStatus)
-                .containsExactly(ShipmentStatus.PROCESSING, ShipmentStatus.SHIPPED, ShipmentStatus.DELIVERED);
-        verify(eventProducer, times(3)).publishShipmentUpdated(any());
+                .containsExactly(ShipmentStatus.PROCESSING, ShipmentStatus.SHIPPED, ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERED);
+        verify(eventProducer, times(4)).publishShipmentUpdated(any());
     }
 
     @Test
     void updateStatus_publishesShipmentUpdated() {
+        testShipment.setStatus(ShipmentStatus.SHIPPED);
         when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         LocalDateTime before = LocalDateTime.now();

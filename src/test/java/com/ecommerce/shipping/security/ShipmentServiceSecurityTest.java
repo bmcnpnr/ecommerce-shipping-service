@@ -10,7 +10,6 @@ import com.ecommerce.shipping.repository.ShipmentEventRepository;
 import com.ecommerce.shipping.repository.ShipmentRepository;
 import com.ecommerce.shipping.service.ShipmentService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -103,7 +102,6 @@ class ShipmentServiceSecurityTest {
         verify(eventProducer).publishShipmentUpdated(any());
     }
 
-    @Disabled("BUG S-82: updateShipmentStatus only blocks DELIVERED/RETURNED as a source, so states can be skipped or moved backwards (PENDING -> DELIVERED, SHIPPED -> PENDING)")
     @ParameterizedTest
     @MethodSource("illegalTransitions")
     void illegalTransition_isRejected_withNoHistoryAndNoEvent(ShipmentStatus from, ShipmentStatus to) {
@@ -188,7 +186,7 @@ class ShipmentServiceSecurityTest {
 
         Set<String> distinct = new HashSet<>(Set.of(numbers));
         assertThat(distinct).hasSize(numbers.length);
-        assertThat(numbers).allSatisfy(n -> assertThat(n).matches("TRACK-[0-9A-F]{8}-[0-9A-F]"));
+        assertThat(numbers).allSatisfy(n -> assertThat(n).matches("TRACK-[0-9A-F]{8}-[0-9A-F]{8}"));
 
         // sequential ids would be (almost) always ascending or always descending; random ones go up about half the time
         int ascending = 0;
@@ -200,7 +198,6 @@ class ShipmentServiceSecurityTest {
         assertThat(ascending).as("ascending steps out of %d", numbers.length - 1).isBetween(850, 1150);
     }
 
-    @Disabled("BUG S-83: the tracking number is 'TRACK-' + the first 10 chars of a UUID, i.e. 9 hex digits = 36 bits, on a public unauthenticated lookup that returns customer data (and collides after ~2^18 shipments)")
     @Test
     void trackingNumbers_carryAtLeast64BitsOfRandomness() {
         String number = generate(1)[0];

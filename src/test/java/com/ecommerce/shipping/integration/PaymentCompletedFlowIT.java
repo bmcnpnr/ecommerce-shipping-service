@@ -51,7 +51,7 @@ class PaymentCompletedFlowIT extends AbstractIntegrationTest {
         assertThat(shipment.getCustomerId()).isEqualTo("customer-42");
         assertThat(shipment.getStatus()).isEqualTo(ShipmentStatus.PENDING);
         assertThat(shipment.getCarrier()).isEqualTo("DHL");
-        assertThat(shipment.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]");
+        assertThat(shipment.getTrackingNumber()).matches("TRACK-[0-9A-F]{8}-[0-9A-F]{8}");
         assertThat(shipment.getEstimatedDelivery()).isAfterOrEqualTo(before.plusDays(5).minusSeconds(1));
 
         List<Received> created = awaitRecords(SHIPMENT_CREATED, String.valueOf(orderId), r -> !r.isEmpty());

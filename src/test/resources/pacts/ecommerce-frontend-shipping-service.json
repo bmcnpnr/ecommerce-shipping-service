@@ -252,12 +252,7 @@
         "body": {
           "content": {
             "carrier": "DHL",
-            "createdAt": "2026-10-29T11:00:00.123456",
-            "destinationAddress": "Customer Address",
             "estimatedDelivery": "2026-10-29T11:00:00.123456",
-            "id": 31,
-            "orderId": 7,
-            "originAddress": "Warehouse, 123 Storage St",
             "status": "PROCESSING",
             "trackingNumber": "TRACK-1A2B3C4D5E"
           },
@@ -279,53 +274,12 @@
                 }
               ]
             },
-            "$.createdAt": {
-              "combine": "AND",
-              "matchers": [
-                {
-                  "match": "regex",
-                  "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
-                }
-              ]
-            },
-            "$.destinationAddress": {
-              "combine": "AND",
-              "matchers": [
-                {
-                  "match": "type"
-                }
-              ]
-            },
             "$.estimatedDelivery": {
               "combine": "AND",
               "matchers": [
                 {
                   "match": "regex",
                   "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?$"
-                }
-              ]
-            },
-            "$.id": {
-              "combine": "AND",
-              "matchers": [
-                {
-                  "match": "integer"
-                }
-              ]
-            },
-            "$.orderId": {
-              "combine": "AND",
-              "matchers": [
-                {
-                  "match": "integer"
-                }
-              ]
-            },
-            "$.originAddress": {
-              "combine": "AND",
-              "matchers": [
-                {
-                  "match": "type"
                 }
               ]
             },

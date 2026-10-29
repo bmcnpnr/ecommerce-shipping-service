@@ -12,7 +12,6 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -70,6 +69,10 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
             request.header("X-User-Role", role);
         }
         return request;
+    }
+
+    private static MockHttpServletRequestBuilder admin(MockHttpServletRequestBuilder request) {
+        return as(request, "root", "ADMIN");
     }
 
     private MvcResult run(MockHttpServletRequestBuilder request) throws Exception {
@@ -159,7 +162,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(anonymous.getResponse().getStatus()).isEqualTo(200);
     }
 
-    @Disabled("BUG S-1: POST /shipments is an internal/admin operation but any caller can create a shipment for any order and customer")
     @Test
     void customer_cannotCreateAShipment() throws Exception {
         long orderId = nextOrderId();
@@ -170,7 +172,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(shipmentRepository.findByOrderId(orderId)).isEmpty();
     }
 
-    @Disabled("BUG S-1: PATCH /shipments/{id}/status has no role check, so a CUSTOMER can mark any shipment (even their own) DELIVERED")
     @Test
     void customer_cannotPatchShipmentStatus() throws Exception {
         String alice = uniq("alice");
@@ -184,7 +185,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(recordsWithKey(SHIPMENT_UPDATED, String.valueOf(own.getOrderId()), Duration.ofSeconds(3))).isEmpty();
     }
 
-    @Disabled("BUG S-1: GET /shipments/order/{orderId} has no ownership check, so alice reads bob's shipment, address included")
     @Test
     void customer_cannotReadAnotherUsersShipment() throws Exception {
         String bob = uniq("bob");
@@ -195,7 +195,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertDenied(result, bob, "Bagdat Cd. 10");
     }
 
-    @Disabled("BUG S-1: GET /shipments/{id}/history has no ownership check, so alice reads bob's shipment history")
     @Test
     void customer_cannotReadAnotherUsersShipmentHistory() throws Exception {
         Shipment shipment = seed(uniq("bob"), ShipmentStatus.PENDING);
@@ -206,7 +205,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertDenied(result, "Bob's depot");
     }
 
-    @Disabled("BUG S-1: without X-Username/X-User-Role (a request that bypassed the gateway) the private endpoints still answer")
     @Test
     void privateEndpoints_withoutIdentityHeaders_areRejected() throws Exception {
         Shipment shipment = seed(uniq("bob"), ShipmentStatus.PENDING);
@@ -231,7 +229,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(body.get("estimatedDelivery").asString()).startsWith(String.valueOf(java.time.LocalDate.now().plusDays(5).getYear()));
     }
 
-    @Disabled("BUG S-8: the unauthenticated tracking endpoint returns the whole ShipmentDTO: customerId, orderId, origin and destination address")
     @Test
     void publicTracking_doesNotDiscloseCustomerOrAddresses() throws Exception {
         String bob = uniq("bob");
@@ -249,14 +246,13 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
 
     // ==== Status transitions ========================================================================================================
 
-    @Disabled("BUG S-82: any status can be set from any non-terminal status: PENDING -> DELIVERED is accepted and publishes shipment.updated")
     @Test
     void skippingStates_isRejected_withNoHistoryAndNoEvent() throws Exception {
         Shipment shipment = seed(uniq("carol"), ShipmentStatus.PENDING);
 
         MvcResult result = run(json(as(patch("/api/v1/shipments/{id}/status", shipment.getId()), "root", "ADMIN"), "{\"status\":\"DELIVERED\"}"));
 
-        assertThat(result.getResponse().getStatus()).isEqualTo(400);
+        assertThat(result.getResponse().getStatus()).isEqualTo(409);
         assertThat(statusOf(shipment.getId())).isEqualTo("PENDING");
         assertThat(historyRows(shipment.getId())).isZero();
         assertThat(recordsWithKey(SHIPMENT_UPDATED, String.valueOf(shipment.getOrderId()), Duration.ofSeconds(3))).isEmpty();
@@ -267,12 +263,12 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         Shipment delivered = seed(uniq("carol"), ShipmentStatus.DELIVERED);
         Shipment pending = seed(uniq("carol"), ShipmentStatus.PENDING);
 
-        MvcResult backwards = run(json(patch("/api/v1/shipments/{id}/status", delivered.getId()), "{\"status\":\"PENDING\"}"));
-        assertThat(backwards.getResponse().getStatus()).isEqualTo(400);
+        MvcResult backwards = run(json(admin(patch("/api/v1/shipments/{id}/status", delivered.getId())), "{\"status\":\"PENDING\"}"));
+        assertThat(backwards.getResponse().getStatus()).isEqualTo(409);
         assertThat(statusOf(delivered.getId())).isEqualTo("DELIVERED");
 
         for (String status : new String[]{"delivered", "DELIVERED'; DROP TABLE shipments;--", "<script>alert(1)</script>", "ALL", ""}) {
-            MvcResult result = run(json(patch("/api/v1/shipments/{id}/status", pending.getId()), "{\"status\":" + JSON.writeValueAsString(status) + "}"));
+            MvcResult result = run(json(admin(patch("/api/v1/shipments/{id}/status", pending.getId())), "{\"status\":" + JSON.writeValueAsString(status) + "}"));
             assertThat(result.getResponse().getStatus()).as(status).isEqualTo(400);
         }
         assertThat(statusOf(pending.getId())).isEqualTo("PENDING");
@@ -280,14 +276,13 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(recordsWithKey(SHIPMENT_UPDATED, String.valueOf(pending.getOrderId()), Duration.ofSeconds(2))).isEmpty();
     }
 
-    @Disabled("BUG S-80: location/description/carrier have no length validation, so a value longer than its column is a 500 from the database instead of a 400")
     @Test
     void valuesLongerThanTheirColumns_are4xx_andChangeNothing() throws Exception {
         Shipment shipment = seed(uniq("carol"), ShipmentStatus.PENDING);
 
-        MvcResult location = run(json(patch("/api/v1/shipments/{id}/status", shipment.getId()),
+        MvcResult location = run(json(admin(patch("/api/v1/shipments/{id}/status", shipment.getId())),
                 "{\"status\":\"PROCESSING\",\"location\":\"" + "L".repeat(300) + "\"}"));
-        MvcResult carrier = run(json(post("/api/v1/shipments"), """
+        MvcResult carrier = run(json(admin(post("/api/v1/shipments")), """
                 {"orderId":%d,"customerId":"x","originAddress":"A","destinationAddress":"B","carrier":"%s"}""".formatted(nextOrderId(), "C".repeat(60))));
 
         assertThat(location.getResponse().getStatus()).as(location.getResponse().getContentAsString()).isBetween(400, 499);
@@ -301,7 +296,7 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
     void create_serverControlledFieldsInTheBody_areIgnored() throws Exception {
         long orderId = nextOrderId();
 
-        MvcResult result = run(json(post("/api/v1/shipments"), """
+        MvcResult result = run(json(admin(post("/api/v1/shipments")), """
                 {"orderId":%d,"customerId":"alice","originAddress":"A","destinationAddress":"B",
                  "id":424242,"status":"DELIVERED","trackingNumber":"TRACK-FORGED-1","actualDelivery":"1999-01-01T00:00:00",
                  "createdAt":"1999-01-01T00:00:00","estimatedDelivery":"1999-01-01T00:00:00"}""".formatted(orderId)));
@@ -310,7 +305,7 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         JsonNode created = JSON.readTree(result.getResponse().getContentAsString());
         assertThat(created.get("id").asLong()).isNotEqualTo(424242L);
         assertThat(created.get("status").asString()).isEqualTo("PENDING");
-        assertThat(created.get("trackingNumber").asString()).isNotEqualTo("TRACK-FORGED-1").matches("TRACK-[0-9A-F]{8}-[0-9A-F]");
+        assertThat(created.get("trackingNumber").asString()).isNotEqualTo("TRACK-FORGED-1").matches("TRACK-[0-9A-F]{8}-[0-9A-F]{8}");
         assertThat(created.get("actualDelivery").isNull()).isTrue();
         Map<String, Object> row = jdbc.queryForMap("select status, tracking_number, actual_delivery, created_at, estimated_delivery from shipments where order_id = ?", orderId);
         assertThat(row.get("status")).isEqualTo("PENDING");
@@ -323,7 +318,7 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
     void statusUpdate_otherFieldsInTheBody_areIgnored() throws Exception {
         Shipment shipment = seed(uniq("carol"), ShipmentStatus.PENDING);
 
-        MvcResult result = run(json(patch("/api/v1/shipments/{id}/status", shipment.getId()), """
+        MvcResult result = run(json(admin(patch("/api/v1/shipments/{id}/status", shipment.getId())), """
                 {"status":"PROCESSING","trackingNumber":"TRACK-FORGED-1","customerId":"mallory","orderId":1,"destinationAddress":"Mallory's house","carrier":"EVIL"}"""));
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -338,15 +333,14 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
     @Test
     void secondShipmentForTheSameOrder_isRejected_andLeavesTheFirstUntouched() throws Exception {
         long orderId = nextOrderId();
-        assertThat(run(json(post("/api/v1/shipments"), createJson(orderId, "alice", "Home 1"))).getResponse().getStatus()).isEqualTo(201);
+        assertThat(run(json(admin(post("/api/v1/shipments")), createJson(orderId, "alice", "Home 1"))).getResponse().getStatus()).isEqualTo(201);
 
-        MvcResult second = run(json(post("/api/v1/shipments"), createJson(orderId, "mallory", "Mallory's house")));
+        MvcResult second = run(json(admin(post("/api/v1/shipments")), createJson(orderId, "mallory", "Mallory's house")));
 
-        assertThat(second.getResponse().getStatus()).isEqualTo(400);
+        assertThat(second.getResponse().getStatus()).isEqualTo(409);
         assertThat(jdbc.queryForList("select customer_id from shipments where order_id = ?", String.class, orderId)).containsExactly("alice");
     }
 
-    @Disabled("BUG I-6: shipments.order_id has no unique constraint (only payments got one), so a race or a replayed event can create two shipments for one order")
     @Test
     void database_refusesTwoShipmentsForOneOrder() {
         Shipment first = seed(uniq("carol"), ShipmentStatus.PENDING);
@@ -402,7 +396,7 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         for (String raw : payloads) {
             String payload = raw + " " + uniq("u");
             long orderId = nextOrderId();
-            MvcResult created = run(json(post("/api/v1/shipments"), createJson(orderId, payload, payload)));
+            MvcResult created = run(json(admin(post("/api/v1/shipments")), createJson(orderId, payload, payload)));
             assertThat(created.getResponse().getStatus()).as(payload).isEqualTo(201);
             JsonNode shipment = JSON.readTree(created.getResponse().getContentAsString());
             assertThat(created.getResponse().getContentType()).startsWith("application/json");
@@ -410,9 +404,9 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
             assertThat(jdbc.queryForObject("select destination_address from shipments where order_id = ?", String.class, orderId)).isEqualTo(payload);
 
             String patchBody = "{\"status\":\"PROCESSING\",\"location\":%s,\"description\":%s}".formatted(JSON.writeValueAsString(payload), JSON.writeValueAsString(payload));
-            assertThat(run(json(patch("/api/v1/shipments/{id}/status", shipment.get("id").asLong()), patchBody)).getResponse().getStatus()).isEqualTo(200);
+            assertThat(run(json(admin(patch("/api/v1/shipments/{id}/status", shipment.get("id").asLong())), patchBody)).getResponse().getStatus()).isEqualTo(200);
 
-            MvcResult history = run(get("/api/v1/shipments/{id}/history", shipment.get("id").asLong()));
+            MvcResult history = run(admin(get("/api/v1/shipments/{id}/history", shipment.get("id").asLong())));
             assertThat(history.getResponse().getContentType()).startsWith("application/json");
             JsonNode first = JSON.readTree(history.getResponse().getContentAsString()).get(0);
             assertThat(first.get("location").asString()).isEqualTo(payload);
@@ -426,7 +420,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("select to_regclass('public.shipments') is not null", Boolean.class)).isTrue();
     }
 
-    @Disabled("BUG S-87: the tracking path variable is passed to Postgres unchecked, so a NUL byte (%00) raises 'invalid byte sequence' and the public endpoint answers 500")
     @Test
     void trackingLookup_withANulByte_isNotAServerError() throws Exception {
         MvcResult result = run(get(URI.create("/api/v1/shipments/tracking/TRACK-%00ABC")));
@@ -448,13 +441,13 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
     void errorResponses_areJson_withoutStackTracesOrSql() throws Exception {
         Shipment delivered = seed(uniq("carol"), ShipmentStatus.DELIVERED);
         List<MvcResult> errors = List.of(
-                run(get("/api/v1/shipments/order/987654321")),
+                run(admin(get("/api/v1/shipments/order/987654321"))),
                 run(get("/api/v1/shipments/tracking/TRACK-UNKNOWN")),
-                run(get("/api/v1/shipments/987654321/history")),
-                run(json(patch("/api/v1/shipments/{id}/status", delivered.getId()), "{\"status\":\"PENDING\"}")),
-                run(json(patch("/api/v1/shipments/{id}/status", delivered.getId()), "{\"status\":\"NOPE\"}")),
-                run(json(post("/api/v1/shipments"), "{}")),
-                run(json(post("/api/v1/shipments"), "{not json")),
+                run(admin(get("/api/v1/shipments/987654321/history"))),
+                run(json(admin(patch("/api/v1/shipments/{id}/status", delivered.getId())), "{\"status\":\"PENDING\"}")),
+                run(json(admin(patch("/api/v1/shipments/{id}/status", delivered.getId())), "{\"status\":\"NOPE\"}")),
+                run(json(admin(post("/api/v1/shipments")), "{}")),
+                run(json(admin(post("/api/v1/shipments")), "{not json")),
                 run(post("/api/v1/shipments/tracking/x")));
 
         for (MvcResult error : errors) {
@@ -467,7 +460,6 @@ class ShipmentSecurityIT extends AbstractIntegrationTest {
 
     // ==== Forged / malformed Kafka events ===============================================================================================
 
-    @Disabled("BUG S-84: payment.completed is trusted blindly: an event with a zero, negative or missing amount still creates a shipment")
     @Test
     void forgedPaymentCompleted_withNoRealAmount_createsNoShipment() {
         long zero = nextOrderId();

@@ -2,7 +2,6 @@ package com.ecommerce.shipping.security;
 
 import com.ecommerce.shipping.controller.ShipmentController;
 import com.ecommerce.shipping.service.ShipmentService;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -84,7 +83,6 @@ class ShipmentControllerSecurityTest {
         verifyNoInteractions(shipmentService);
     }
 
-    @Disabled("BUG S-80: customerId, carrier and the status location/description have no @Size, so values longer than their columns (255/50/255/500) pass validation and fail in the database")
     @Test
     void create_andStatusUpdate_withValuesLongerThanTheirColumns_are400() throws Exception {
         assertThat(create(createJson("1", "a".repeat(256), "A", "B", "DHL")).getResponse().getStatus()).as("customerId").isEqualTo(400);
@@ -117,7 +115,6 @@ class ShipmentControllerSecurityTest {
 
     // ---- request shape ----------------------------------------------------------------------------------
 
-    @Disabled("BUG S-86: shipping's GlobalExceptionHandler has no HttpMediaTypeNotSupportedException handler (A-4 left it out), so a wrong Content-Type is a 500")
     @Test
     void wrongContentType_is415() throws Exception {
         for (String type : new String[]{"text/plain", "application/xml", "application/x-www-form-urlencoded"}) {
@@ -141,11 +138,11 @@ class ShipmentControllerSecurityTest {
         verifyNoInteractions(shipmentService);
     }
 
-    @Disabled("BUG S-86: shipping's GlobalExceptionHandler does not map NoResourceFoundException, so any unknown path (PUT/DELETE /shipments/1, GET /shipments) is a 500 instead of a 404")
     @Test
     void unknownPath_is404() throws Exception {
         mockMvc.perform(get("/api/v1/shipments/1")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/shipments")).andExpect(status().isNotFound());
+        // GET on the collection path exists only as POST (create): the correct answer is 405, not 404
+        mockMvc.perform(get("/api/v1/shipments")).andExpect(status().isMethodNotAllowed());
     }
 
     // ---- error bodies ---------------------------------------------------------------------------------------
@@ -155,7 +152,8 @@ class ShipmentControllerSecurityTest {
         given(shipmentService.getShipmentByOrderId(5L)).willThrow(new org.springframework.dao.DataIntegrityViolationException(
                 "could not execute statement [ERROR: value too long for type character varying(255)] [insert into shipments ...]"));
 
-        MvcResult result = mockMvc.perform(get("/api/v1/shipments/order/5")).andExpect(status().isInternalServerError()).andReturn();
+        MvcResult result = mockMvc.perform(get("/api/v1/shipments/order/5").header("X-Username", "alice").header("X-User-Role", "CUSTOMER"))
+                .andExpect(status().isInternalServerError()).andReturn();
 
         String body = result.getResponse().getContentAsString();
         assertThat(body).contains("An unexpected error occurred").doesNotContain("value too long").doesNotContain("insert into");
@@ -170,7 +168,6 @@ class ShipmentControllerSecurityTest {
         assertNoInternals(body);
     }
 
-    @Disabled("BUG S-81: HttpMessageNotReadableException / MethodArgumentTypeMismatchException messages are echoed verbatim, exposing DTO class names and Java types")
     @Test
     void malformedJson_errorBodyLeaksNoClassNames() throws Exception {
         MvcResult result = create(createJson("\"abc\"", "alice", "A", "B", "DHL"));
@@ -179,7 +176,6 @@ class ShipmentControllerSecurityTest {
         assertNoInternals(result.getResponse().getContentAsString());
     }
 
-    @Disabled("BUG S-81: HttpMessageNotReadableException / MethodArgumentTypeMismatchException messages are echoed verbatim, exposing DTO class names and Java types")
     @Test
     void wrongTypedPathVariable_errorBodyLeaksNoClassNames() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/shipments/order/abc")).andExpect(status().isBadRequest()).andReturn();

@@ -60,22 +60,22 @@ class GlobalExceptionHandlerTest {
     @Test
     void methodNotSupported_is405() {
         HttpRequestMethodNotSupportedException ex = new HttpRequestMethodNotSupportedException("DELETE");
-        assertBody(handler.handleClientError(ex, request), HttpStatus.METHOD_NOT_ALLOWED, "Method Not Allowed", ex.getMessage());
+        assertBody(handler.methodNotAllowed(ex, request), HttpStatus.METHOD_NOT_ALLOWED, "Method Not Allowed", "Method not allowed");
     }
 
     @Test
     void unreadableBody_is400() {
         HttpMessageNotReadableException ex = new HttpMessageNotReadableException("JSON parse error", new MockHttpInputMessage(new byte[0]));
-        assertBody(handler.handleClientError(ex, request), HttpStatus.BAD_REQUEST, "Bad Request", "JSON parse error");
+        assertBody(handler.unreadable(ex, request), HttpStatus.BAD_REQUEST, "Bad Request", "Malformed request body");
     }
 
     @Test
     void missingParameterAndBindingErrors_are400() {
         MissingServletRequestParameterException missing = new MissingServletRequestParameterException("q", "String");
-        assertBody(handler.handleClientError(missing, request), HttpStatus.BAD_REQUEST, "Bad Request", missing.getMessage());
+        assertBody(handler.missingParameter(missing, request), HttpStatus.BAD_REQUEST, "Bad Request", "Missing required parameter");
 
         ServletRequestBindingException binding = new ServletRequestBindingException("Missing header");
-        assertBody(handler.handleClientError(binding, request), HttpStatus.BAD_REQUEST, "Bad Request", "Missing header");
+        assertBody(handler.binding(binding, request), HttpStatus.BAD_REQUEST, "Bad Request", "Invalid request");
     }
 
     @Test

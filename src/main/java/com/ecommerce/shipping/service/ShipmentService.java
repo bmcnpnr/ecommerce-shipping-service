@@ -88,7 +88,8 @@ public class ShipmentService {
 
     @Transactional
     public ShipmentDTO updateShipmentStatus(Long shipmentId, String statusStr, String location, String description) {
-        Shipment shipment = shipmentRepository.findById(shipmentId)
+        // row lock: concurrent changes of one shipment are serialised, the second sees the first's status
+        Shipment shipment = shipmentRepository.findByIdForUpdate(shipmentId)
                 .orElseThrow(() -> new ShipmentNotFoundException("Shipment not found: " + shipmentId));
 
         ShipmentStatus newStatus;

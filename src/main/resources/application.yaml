@@ -8,7 +8,18 @@ spring:
     username: ${DB_USERNAME:shippinguser}
     password: ${DB_PASSWORD:shippingpass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # A request waits at most 5 s for a connection (then 503), not Hikari's default 30 s.
+      connection-timeout: 5000
+      # pgjdbc defaults to no socket timeout: a database that stops answering (dropped packets, frozen host)
+      # would hold the request thread or the Kafka consumer thread until the OS gives up, many minutes later.
+      data-source-properties:
+        connectTimeout: 5   # seconds
+        socketTimeout: 30   # seconds a read may block; statements here take milliseconds
+        tcpKeepAlive: true
   jpa:
+    # No database connection or session held for the whole request; the service layer maps to DTOs inside its transactions.
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     # No hibernate.dialect: Hibernate detects it from the connection (PostgreSQL
@@ -22,6 +33,12 @@ spring:
     # classpath (plain spring-kafka), so producer and consumer settings live in
     # config/KafkaProducerConfig.java, which reads this through @Value.
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  task:
+    scheduling:
+      shutdown:
+        # let a relay run that is mid-batch finish instead of interrupting it on SIGTERM
+        await-termination: true
+        await-termination-period: 20s
 eureka:
   client:
     service-url:
@@ -81,6 +98,24 @@ springdoc:
     path: /swagger-ui.html
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId:-}] [%X{traceId:-}] %-5level %logger{36} - %msg%n"
   level:
-    com.ecommerce: DEBUG
+    # DEBUG on demand: LOGGING_LEVEL_COM_ECOMMERCE=DEBUG
+    com.ecommerce: INFO
+    # Hibernate writes two WARN lines (SQLState, then the driver's message) for every failed JDBC call: with the
+    # database down that is two lines per request, however busy the service is. The exception itself reaches
+    # GlobalExceptionHandler and the Kafka listener, which log one throttled line naming the cause.
+    org.hibernate.orm.jdbc.error: "OFF"
+    # Logs "Application exception overridden by rollback exception" with a stack trace of several hundred lines for
+    # every transaction that was in flight when its connection died (a killed backend, a database restart). The
+    # handler reports the failure once per window, with the root cause, and answers 503.
+    org.springframework.transaction.interceptor.TransactionInterceptor: "OFF"
+
+# Transactional outbox (OutboxRelay): events are written with the state change and published from here.
+# outbox.relay.enabled=false switches the relay off (the H2 test profile does: its native query is Postgres-only).
+# send-timeout-ms (default 35000) is the backstop above the producer's delivery.timeout.ms (30 s).
+outbox:
+  relay:
+    enabled: true
+    interval-ms: 500
+    batch-size: 100

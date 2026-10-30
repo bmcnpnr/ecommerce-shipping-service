@@ -16,3 +16,7 @@ eureka:
     enabled: false
     register-with-eureka: false
     fetch-registry: false
+outbox:
+  relay:
+    # The relay's native query (FOR UPDATE SKIP LOCKED) needs PostgreSQL; the *IT classes run it for real.
+    enabled: false

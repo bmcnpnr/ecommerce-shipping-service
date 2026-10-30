@@ -32,15 +32,22 @@ mvn -B clean package -DskipTests    # the jar the Docker image copies
 cd ../ecommerce-platform && docker compose up -d --build shipping-service
 ```
 
-Kafka is configured in `config/KafkaProducerConfig.java`. Events are JSON from
-spring-kafka's `JacksonJsonSerializer`, with `LocalDateTime` kept as integer
-arrays (`WRITE_DATES_AS_TIMESTAMPS`). CI is GitHub Actions
-(`.github/workflows/ci-cd.yml`).
+Kafka is configured in `config/KafkaProducerConfig.java`. Events are JSON written with
+the mapper the Kafka producer always used, with `LocalDateTime` kept as integer arrays
+(`WRITE_DATES_AS_TIMESTAMPS`), and stored in the `outbox_event` table in the same
+transaction as the change (`messaging/ShipmentEventProducer`); `outbox/OutboxRelay`
+publishes them to Kafka and deletes each row once it is acknowledged (a row it can never
+publish is parked: `UPDATE outbox_event SET parked_at = NULL WHERE id = ?` sends it again
+after the cause is fixed; metrics `outbox_events_pending`, `outbox_events_parked`,
+`outbox_events_published_total`, `outbox_publish_failures_total`). A `payment.completed`
+that fails goes to `payment.completed.DLT` (`kafka/DeadLetterRecoverer`); while the
+database is away the listener waits with back-off instead of dead-lettering good
+records. CI is GitHub Actions (`.github/workflows/ci-cd.yml`).
 
 ## Contract tests (Pact)
 
 - `contract/PaymentEventsConsumerPactTest`: **consumer** of payment-service's `payment.completed`, delivered through the real listener container (`StringDeserializer` + `JacksonJsonMessageConverter`) on an embedded Kafka. Writes `target/pacts/shipping-service-payment-service.json`.
-- `contract/ShipmentEventsProviderPactTest`: **provider** of `shipment.created` / `shipment.updated`. Replays notification-service's pact (`src/test/resources/pacts/`) against the real `PaymentEventConsumer` / `ShipmentService`, serialized with the production `JacksonJsonSerializer`.
+- `contract/ShipmentEventsProviderPactTest`: **provider** of `shipment.created` / `shipment.updated`. Replays notification-service's pact (`src/test/resources/pacts/`) against the real `PaymentEventConsumer` / `ShipmentService`; the verified bytes are the payload stored in the outbox, which is what the relay puts on the wire.
 
 Run them alone with `mvn test -Dtest='*PactTest'`. Redistribute pacts with
 `ecommerce-platform/sync-pacts.sh`.

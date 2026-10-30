@@ -64,7 +64,7 @@ class ShipmentServiceSecurityTest {
     private Shipment shipment(ShipmentStatus status) {
         Shipment shipment = Shipment.builder().id(5L).orderId(100L).customerId("alice").trackingNumber("TRACK-AAAAAAAA-A")
                 .status(status).originAddress("Warehouse").destinationAddress("Home").build();
-        lenient().when(shipmentRepository.findById(5L)).thenReturn(Optional.of(shipment));
+        lenient().when(shipmentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(shipment));
         return shipment;
     }
 

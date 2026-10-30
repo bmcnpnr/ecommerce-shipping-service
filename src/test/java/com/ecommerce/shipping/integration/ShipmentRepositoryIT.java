@@ -43,7 +43,7 @@ class ShipmentRepositoryIT extends AbstractIntegrationTest {
     void flywayAppliedAllMigrations() {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank");
-        assertThat(rows).extracting(r -> r.get("version")).containsExactly("1", "2", "3");
+        assertThat(rows).extracting(r -> r.get("version")).containsExactly("1", "2", "3", "4");
         assertThat(rows).allSatisfy(r -> assertThat(r.get("success")).isEqualTo(true));
     }
 

@@ -1,19 +1,29 @@
 package com.ecommerce.shipping.exception;
 
+import com.ecommerce.shipping.logging.LogSanitizer;
+import com.ecommerce.shipping.logging.LogThrottle;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.dao.DataIntegrityViolationException;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    // A failure that repeats at request rate (a bug on a hot path, a dead database under load, one bad
+    // client in a loop) writes its first occurrence per window and counts the rest: log volume follows
+    // the number of distinct problems, not the traffic.
+    private static final LogThrottle ERROR_LOG = new LogThrottle(10, TimeUnit.SECONDS);
+    private static final LogThrottle UNAVAILABLE_LOG = new LogThrottle(10, TimeUnit.SECONDS);
 
     @ExceptionHandler(ShipmentNotFoundException.class)
     public ResponseEntity<ErrorResponse> notFound(ShipmentNotFoundException ex, HttpServletRequest req) {
@@ -111,7 +121,24 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> general(Exception ex, HttpServletRequest req) {
-        log.error("Unhandled exception on {} {} (correlationId={})", req.getMethod(), req.getRequestURI(), MDC.get("correlationId"), ex);
+        if (DependencyFailures.isUnavailable(ex)) {
+            // A dead dependency is not a bug: 503 and one short line per window, not a stack trace per request.
+            long suppressed = UNAVAILABLE_LOG.acquire(ex.getClass().getName());
+            if (suppressed >= 0) {
+                // the root cause matters: a rollback that failed on a dead connection replaces the original exception
+                Throwable root = NestedExceptionUtils.getMostSpecificCause(ex);
+                log.warn("Dependency unavailable on {} {} (correlationId={}): {}{}{}", req.getMethod(), req.getRequestURI(),
+                        MDC.get("correlationId"), LogSanitizer.clean(ex.toString()),
+                        root == ex ? "" : "; root cause " + LogSanitizer.clean(root.toString()),
+                        LogThrottle.suppressedSuffix(suppressed));
+            }
+            return r(HttpStatus.SERVICE_UNAVAILABLE, "Service Unavailable", "Service temporarily unavailable", req.getRequestURI());
+        }
+        long suppressed = ERROR_LOG.acquire(LogThrottle.keyOf(ex));
+        if (suppressed >= 0) {
+            log.error("Unhandled exception on {} {} (correlationId={}){}", req.getMethod(), req.getRequestURI(),
+                    MDC.get("correlationId"), LogThrottle.suppressedSuffix(suppressed), ex);
+        }
         return r(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", "An unexpected error occurred", req.getRequestURI());
     }
 

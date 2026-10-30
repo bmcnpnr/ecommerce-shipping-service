@@ -85,7 +85,7 @@ class ShipmentServiceTest {
     @Test
     void updateStatus_alreadyDelivered_throws() {
         testShipment.setStatus(ShipmentStatus.DELIVERED);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         assertThatThrownBy(() -> shipmentService.updateShipmentStatus(1L, "SHIPPED", null, null))
                 .isInstanceOf(InvalidShipmentStateException.class);
     }
@@ -224,7 +224,7 @@ class ShipmentServiceTest {
     @MethodSource("transitionsOutOfATerminalState")
     void updateStatus_outOfTerminalState_isRejected_andChangesNothing(ShipmentStatus from, ShipmentStatus to) {
         testShipment.setStatus(from);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
 
         assertThatThrownBy(() -> shipmentService.updateShipmentStatus(1L, to.name(), "Hub", "desc"))
                 .isInstanceOf(InvalidShipmentStateException.class)
@@ -241,7 +241,7 @@ class ShipmentServiceTest {
     @MethodSource("transitionsOutOfANonTerminalState")
     void updateStatus_outOfNonTerminalState_isApplied(ShipmentStatus from, ShipmentStatus to) {
         testShipment.setStatus(from);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ShipmentDTO dto = shipmentService.updateShipmentStatus(1L, to.name(), null, null);
@@ -261,7 +261,7 @@ class ShipmentServiceTest {
             case OUT_FOR_DELIVERY, RETURNED -> ShipmentStatus.SHIPPED;
             default -> throw new IllegalArgumentException();
         });
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         assertThat(shipmentService.updateShipmentStatus(1L, to.name(), null, null).getActualDelivery()).isNull();
@@ -270,7 +270,7 @@ class ShipmentServiceTest {
     @Test
     void updateStatus_toDelivered_setsActualDelivery() {
         testShipment.setStatus(ShipmentStatus.OUT_FOR_DELIVERY);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         LocalDateTime before = LocalDateTime.now();
 
@@ -284,7 +284,7 @@ class ShipmentServiceTest {
     @Test
     void updateStatus_appendsHistoryEvent_withGivenLocationAndDescription() {
         testShipment.setStatus(ShipmentStatus.PROCESSING);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         LocalDateTime before = LocalDateTime.now();
 
@@ -304,7 +304,7 @@ class ShipmentServiceTest {
 
     @Test
     void updateStatus_withoutDescription_usesDefaultHistoryText() {
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         shipmentService.updateShipmentStatus(1L, "PROCESSING", null, null);
@@ -317,7 +317,7 @@ class ShipmentServiceTest {
 
     @Test
     void updateStatus_successiveUpdates_accumulateHistoryInOrder() {
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         shipmentService.updateShipmentStatus(1L, "PROCESSING", null, null);
@@ -333,7 +333,7 @@ class ShipmentServiceTest {
     @Test
     void updateStatus_publishesShipmentUpdated() {
         testShipment.setStatus(ShipmentStatus.SHIPPED);
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
         when(shipmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         LocalDateTime before = LocalDateTime.now();
 
@@ -352,7 +352,7 @@ class ShipmentServiceTest {
 
     @Test
     void updateStatus_notFound_throws_andPublishesNothing() {
-        when(shipmentRepository.findById(404L)).thenReturn(Optional.empty());
+        when(shipmentRepository.findByIdForUpdate(404L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> shipmentService.updateShipmentStatus(404L, "SHIPPED", null, null))
                 .isInstanceOf(ShipmentNotFoundException.class)
@@ -363,7 +363,7 @@ class ShipmentServiceTest {
 
     @Test
     void updateStatus_unknownOrLowerCaseStatus_isRefused_andChangesNothing() {
-        when(shipmentRepository.findById(1L)).thenReturn(Optional.of(testShipment));
+        when(shipmentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(testShipment));
 
         assertThatThrownBy(() -> shipmentService.updateShipmentStatus(1L, "FLYING", null, null));
         assertThatThrownBy(() -> shipmentService.updateShipmentStatus(1L, "shipped", null, null));

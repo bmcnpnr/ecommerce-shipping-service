@@ -51,7 +51,7 @@ class FrontendHttpProviderPactTest {
     private JdbcTemplate jdbc;
 
     @MockitoBean
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private KafkaTemplate<String, String> kafkaTemplate;
 
     @BeforeEach
     void setTarget(PactVerificationContext context) {

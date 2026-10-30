@@ -189,9 +189,9 @@ class ShipmentLifecycleIT extends AbstractIntegrationTest {
     }
 
     /**
-     * shipment.updated is sent inside the transaction, before commit. An over-long location
-     * still announces nothing. Since S-80 the over-long location is refused by request validation (400)
-     * before the service runs; the database never sees it.
+     * An over-long location announces nothing. Since S-80 it is refused by request validation (400) before
+     * the service runs; the database never sees it. (The same failure at commit time, after the event was
+     * queued, is covered by {@code OutboxIT}: the outbox row rolls back with the change.)
      */
     @Test
     void locationOverflow_isRolledBack_andPublishesNoShipmentUpdated() throws Exception {

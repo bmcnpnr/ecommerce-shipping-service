@@ -13,29 +13,28 @@ import com.ecommerce.shipping.event.PaymentCompletedEvent;
 import com.ecommerce.shipping.messaging.PaymentEventConsumer;
 import com.ecommerce.shipping.model.Shipment;
 import com.ecommerce.shipping.model.ShipmentStatus;
+import com.ecommerce.shipping.outbox.OutboxEvent;
+import com.ecommerce.shipping.outbox.OutboxEventRepository;
 import com.ecommerce.shipping.repository.ShipmentRepository;
 import com.ecommerce.shipping.service.ShipmentService;
-import org.apache.kafka.common.header.internals.RecordHeaders;
-import org.apache.kafka.common.serialization.Serializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,10 +48,11 @@ import static org.mockito.Mockito.when;
  * For each interaction this class produces the record the way production does:
  * {@code shipment.created} comes out of the real {@link PaymentEventConsumer} reacting
  * to a {@code payment.completed} event, {@code shipment.updated} out of the real
- * {@link ShipmentService#updateShipmentStatus}; both hand the event to the
- * {@code KafkaTemplate} (mocked here to capture topic, key and payload), and the payload
- * is serialized with the value serializer configured on the production
- * {@link ProducerFactory} (spring-kafka's {@code JacksonJsonSerializer}, no type headers).
+ * {@link ShipmentService#updateShipmentStatus}; both store the event in the transactional outbox
+ * (the {@code OutboxEventRepository} is mocked here to capture topic, key and payload). The relay sends
+ * the stored JSON text through a {@code StringSerializer}, so the bytes verified here are the bytes that
+ * go on the wire (the mapper is the one the Kafka producer always used: java.time as integer arrays, no
+ * type headers).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("test")
@@ -67,14 +67,11 @@ class ShipmentEventsProviderPactTest {
     @Autowired
     private ShipmentService shipmentService;
 
-    @Autowired
-    private ProducerFactory<String, Object> producerFactory;
-
     @MockitoBean
     private ShipmentRepository shipmentRepository;
 
     @MockitoBean
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private OutboxEventRepository outbox;
 
     @BeforeEach
     void setTarget(PactVerificationContext context) {
@@ -94,7 +91,7 @@ class ShipmentEventsProviderPactTest {
     @State("payment 501 for order 7 has completed")
     void noShipmentForOrder7() {
         reset(shipmentRepository);
-        reset(kafkaTemplate);
+        reset(outbox);
         when(shipmentRepository.findByOrderId(7L)).thenReturn(Optional.empty());
         when(shipmentRepository.save(any(Shipment.class))).thenAnswer(inv -> {
             Shipment s = inv.getArgument(0);
@@ -106,8 +103,8 @@ class ShipmentEventsProviderPactTest {
     @State("shipment 31 for order 7 is being shipped")
     void shipment31Processing() {
         reset(shipmentRepository);
-        reset(kafkaTemplate);
-        when(shipmentRepository.findById(31L)).thenAnswer(inv -> Optional.of(shipment31(ShipmentStatus.PROCESSING)));
+        reset(outbox);
+        when(shipmentRepository.findByIdForUpdate(31L)).thenAnswer(inv -> Optional.of(shipment31(ShipmentStatus.PROCESSING)));
         when(shipmentRepository.save(any(Shipment.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -131,25 +128,16 @@ class ShipmentEventsProviderPactTest {
 
     // ───────────────────────────── helpers ─────────────────────────────
 
-    /** The (topic, key, value) the production code handed to KafkaTemplate, serialized exactly as the producer would. */
+    /** The (topic, key, value) the production code stored in the outbox, as the relay will put it on the wire. */
     private MessageAndMetadata capturedRecord(String expectedTopic) {
-        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> value = ArgumentCaptor.forClass(Object.class);
-        verify(kafkaTemplate).send(eq(expectedTopic), key.capture(), value.capture());
-        byte[] bytes = valueSerializer().serialize(expectedTopic, new RecordHeaders(), value.getValue());
+        ArgumentCaptor<OutboxEvent> row = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(row.capture());
+        assertThat(row.getValue().getTopic()).isEqualTo(expectedTopic);
+        byte[] bytes = row.getValue().getPayload().getBytes(StandardCharsets.UTF_8);
         return new MessageAndMetadata(bytes, Map.of(
                 "contentType", "application/json",
                 "kafka_topic", expectedTopic,
-                "kafka_key", key.getValue()));
-    }
-
-    /** The value serializer instance the production ProducerFactory hands to the Kafka client. */
-    private Serializer<Object> valueSerializer() {
-        Serializer<Object> serializer = producerFactory.getValueSerializer();
-        if (serializer == null) {
-            throw new IllegalStateException("The production ProducerFactory configures no value serializer instance");
-        }
-        return serializer;
+                "kafka_key", row.getValue().getEventKey()));
     }
 
     private static Shipment shipment31(ShipmentStatus status) {
